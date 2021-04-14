@@ -1,0 +1,540 @@
+---
+title: "Investigating Literacy Rates in US Counties"
+author: "Sophie Moore & Eliza Jacobson"
+date: "March 2021"
+output:
+  pdf_document:
+    toc: yes
+    df_print: paged
+---
+
+\centering
+\raggedright
+\newpage
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, 
+                      message = FALSE, 
+                      warning = FALSE)
+
+#load packages 
+library(tidyverse)
+library(readxl)
+library(MASS)
+library(car)
+library(knitr)
+library(tidymodels)
+library(kableExtra)
+```
+
+```{r load data}
+county.data <- read_excel("county_data_final.xlsx")
+```
+
+# Introduction
+
+While populations are increasing and technology is simultaneously breaking down barriers between us, the ability to communicate and interact with others is critical. As a political science major and an anthropology/geography major, we are students who are interested in people, politics, culture and the environment. Using statistics in social sciences is essential in making policy conclusions, analyzing social and behavior changes, and answering cultural questions, which is why we chose to focus our final project on literacy rates. Literacy rates can be used to assess health, social progress and economic achievement. Numerous studies have found correlations between high literacy rates and better economic opportunity, health, and even environmental sustainability. One study noted that “it is unclear whether the poor health status of illiterate individuals in the U.S. is related to illiteracy itself, or to other associated sociodemographic factors,” but “literate women are more likely to participate in family planning services...[and] improved knowledge about and utilization of family planning information can, in turn, decrease birth rates and family size, both of which are important factors in improving the health status of women and children in nonindustrialized countries” (Weiss 1991). A later research journal found bi-causality between income per capita and literacy rates with results that conclude that “higher literacy rates lead to increased health expenditures due to increased demand of health services” (Mehmood 2014).
+
+In our analysis, we wondered if we could predict literacy rates based on factors such as poverty levels and unemployment. Thus, we conducted linear regressions to model the relationships between our primary response variable, literacy rates in percentages, and explanatory variables including education less than high school, population below poverty level, unemployment, and state. To acquire data, we originally created a dataset from the National Center for Education Statistics and World Population Review on state-by-state expenditures and literacy rates. Since it focused on states, we only had 50 observations. After we did a few initial tests, we decided to dive deeper into the statistics by expanding our observations by choosing a dataset that focused on literacy rates per county from the Programme for the International Assessment of Adult Competencies (PIAAC). This program assesses and analyzes adult skills including literacy, numeracy, and problem solving in over 40 countries. With US counties as the new observational unit, there are 3,412 observations. From this dataset, we decided to use states as a categorical variable. Data about our other categorical variable, geographic region (north, south, northeast, west or midwest), was found on the US Department of Commerce’s Bureau of Economic Analysis website, but we assigned counties a region manually in our dataset during the data cleaning stage. Since we collected data from two credible sources, we had to compile our own spreadsheet of all our variables with a codebook that contains descriptions and sources.
+
+# Split the Data 
+
+```{r split data}
+#split county data into test and train
+sample.size <- floor(.8 * nrow(county.data)) #defines size of train.data as 80% of n
+set.seed(123) #set seed so the same random nums generate
+train_ind <- sample(seq_len(nrow(county.data)), size = sample.size) #choose indices of
+#the observations to be added to train.data
+train.data <- county.data[train_ind, ] #populates train.data
+test.data <- county.data[-train_ind, ] #populates test.data w/ the remaining observations
+```
+
+The size of `train.data` will be 80% of the 3142 observations, which is 2513. The variable `train_ind` stores a randomly-selected list of 2513 index numbers, which correspond to observations (US counties) in the data set. We used '123' as our seed number for the set.seed() function when randomly choosing the indexes of the observations for `train.data` in order to ensure the same "random" numbers generate each time. `train.data` is filled with the observations at these 2513 rows in the data, and `test.data` is populated with the remaining 629 counties.
+
+The point of splitting the original data into these two groups is that we will use the training data set to "train" our model and create visualizations, then use the testing data set to test the model. This is a good way to check model validity, because the 629 counties in `test.data` will not be used to create our model. 
+
+\pagebreak 
+
+```{r update train.data}
+train.data$region <- factor(train.data$region)
+train.data$State <- factor(train.data$State)
+attach(train.data)
+```
+
+# Data Visualization 
+
+## Matrix Plot
+
+```{r matrix plot}
+cols <- c(26, 15, 19, 20, 23) #choose vars to plot by column number 
+pairs(train.data[ ,cols], 
+      pch = 20, cex = 0.5, 
+      lower.panel = NULL,
+      labels = c("Literacy Rate", "% Less than HS", "% Foreign Born", "Poverty Rate", "Unemployment Rate"), 
+      main = "Primary Variables, Where Literacy is the Response")
+```
+
+Based on the matrix plot, it is very obvious that there is an extremely strong, negative, linear relationship between literacy rate and the proportion of the population with less than a high school education, with a correlation coefficient of -0.947. There are also negative relationships between literacy rate and the proportion of the population that is foreign born (r=-0.264), the poverty rate (r=-0.720), and the unemployment rate (r=-0.397) respectively that all appear significant, though less strong than the first relationship. 
+
+There are definitely positive linear relationships between a few predictors, such as percentage with less than HS education and poverty rate (r=0.633); Less_HS and the unemployment rate (r=0.328); and the poverty rate and unemployment rate (r=0.536), all three of which relationships make logical sense.  
+
+The relationship between literacy rate and percentage foreign born could possibly use a transformation to improve linearity and equal variance. The relationships where percentage with less than HS education and poverty rate are the predictors appear to have equal variance issues, so a transformation of literacy rate could help both of those. 
+
+## Correlation Matrix 
+
+```{r cor matrix}
+kbl(cor(train.data[ ,cols]), booktabs = T) %>%
+  kable_styling(latex_options = c("striped", "hold_position"))
+```
+
+## Interaction Plot 
+
+```{r interaction plot}
+#fit interaction model Literate~ region + Poverty_100
+interaction.lm <- lm(Literate ~ region + Poverty_100 + region:Poverty_100, data = train.data)
+
+#plot 
+plot(train.data$Poverty_100, train.data$Literate, col = as.factor(train.data$region), data = train.data, pch = 20, 
+     main = "Interaction Plot between Region and Poverty Rate", 
+     xlab = "Poverty Rate", 
+     ylab = "Literacy Rate")
+legend('bottomleft', legend = c("midwest", "northeast", "south", "west"), pch = 20, col = c(1:4))
+
+#add fitted lines
+coeff <-interaction.lm$coeff
+
+abline(coeff[1], coeff[5], col = 1, lwd = 2) #midwest
+abline(coeff[1] + coeff[2], coeff[5] + coeff[6], col = 2, lwd = 2) #northeast
+abline(coeff[1] + coeff[3], coeff[5] + coeff[7], col = 3, lwd = 2) #south 
+abline(coeff[1] + coeff[4], coeff[5] + coeff[8], col = 4, lwd = 2) #west 
+```
+In context, an interaction between the poverty rate and region would mean that the region of the United States that a given county is located in has an impact on how the poverty rate affects the literacy rate of that county, i.e., the poverty rate affects the literacy rates differently in different regions of the US.
+
+Based on the interaction plot, it appears that a parallel lines plot might be appropriate for the northeast, south, and west, but the midwest line could be making the interaction significant, although it is impossible to tell without running the formal hypothesis test.
+
+\pagebreak
+
+# Variable Pre-Processing 
+
+## Initial Residual Plots
+
+```{r initial resid plots}
+par(mfrow = c(2,2))
+plot(resid(lm(train.data$Literate ~ train.data$Less_HS)) ~ train.data$Less_HS,
+     xlab = "% Population w/ Less than High School Education", 
+     ylab = "Residuals", 
+     main = "Plot 1 (Less than HS)"); abline(0,0, col = "blue")
+plot(resid(lm(train.data$Literate ~ train.data$FB)) ~ train.data$FB,
+     xlab = "% of Population who is Foreign-Born", 
+     ylab = "Residuals", 
+     main = "Plot 2 (Foreign Born)"); abline(0,0, col = "blue")
+plot(resid(lm(train.data$Literate ~ train.data$Poverty_100)) ~ train.data$Poverty_100,
+     xlab = "Poverty Rate", 
+     ylab = "Residuals", 
+     main = "Plot 3 (Poverty Rate)"); abline(0,0, col = "blue")
+plot(resid(lm(train.data$Literate ~ train.data$Unemployed)) ~ train.data$Unemployed,
+     xlab = "Unemployment Rate", 
+     ylab = "Residuals",
+     main = "Plot 4 (Unemployed)"); abline(0,0, col = "blue")
+```
+
+The initial residual plots of Literacy Rate with each quantitative predictor are shown above. Plot 1 shows no obvious violations of linearity but a clear equal variance problem. Plot 2 doesn't seem show to show a linearity issue, but there might be an issue with equal variance. Plots 3 and 4 don't have any huge linearity issues but there does seem to be a bit of an equal variance violation in both plots. 
+
+```{r initial hists of resids}
+par(mfrow = c(2,2))
+hist(resid(lm(train.data$Literate ~ train.data$Less_HS)), main = "Plot 1 (Less than HS)", xlab = "Residuals")
+hist(resid(lm(train.data$Literate ~ train.data$FB)), main = "Plot 2 (Foreign Born)", xlab = "Residuals")
+hist(resid(lm(train.data$Literate ~ train.data$Poverty_100)), main = "Plot 3 (Poverty Rate)", xlab = "Residuals")
+hist(resid(lm(train.data$Literate ~ train.data$Unemployed)), main = "Plot 4 (Unemployed)", xlab = "Residuals")
+```
+
+The initial histograms of the residuals from literacy rate and each quantitative predictor are shown above. There are no egregious deviations from normality in any of the plots, although plots 2 and 4 seem somewhat right-skewed. 
+
+## Preliminary Transformations
+
+Because the main issue identified in the residual plots of literacy rate and each predictor was equal variance, along with some minor issues with linearity, we decided that a transformation of y would be the most likely to fix the problems. We also tried multiple linearizing transformations on the predictors `Less_HS` and `FB`, but nothing seemed to help linearity, so these plots are not included. 
+
+Below are the Box Cox plots for literacy rate and each predictor, which was a good place to start in order to determine the correct transformation. 
+
+### Box Cox
+
+```{r box cox}
+par(mfrow = c(2,2))
+boxcox(train.data$Literate ~ train.data$Less_HS, plotit = TRUE, lambda = seq(1,3), xlab = "Less than HS")
+boxcox(train.data$Literate ~ train.data$FB, plotit = TRUE, lambda = seq(3,5.5), xlab = "Foreign Born")
+boxcox(train.data$Literate ~ train.data$Poverty_100, plotit = TRUE, lambda = seq(3,5.5), xlab = "Poverty Rate")
+boxcox(train.data$Literate ~ train.data$Unemployed, plotit = TRUE, lambda = seq(3.5,5.5), xlab = "Unemployed")
+```
+
+The Box Cox plots suggest raising the response variable to a higher power, but unfortunately they do not all include the same power within the 95% confidence intervals. The power transformation that appears closest to all four confidence intervals is 4. We attempted to include those residual plots below but unfortunately the LaTeX processor would not allow us to do so. Prior to `Literate`^4^, we attempted `Literate`^2^ and the natural log of Literate, but neither were fruitful for transforming the individual relationships between the response and each predictor. 
+
+## Unusual Observations 
+
+We believe that none of the relationships between literacy rate and an individual relationship have many extreme outliers. One thing we noted is that the somewhat-unusual observations in all four of the relationships plotted above are to the right of the point clouds, and none are to the left. This means that these relationships between the literacy rates and the four predictors are right skewed, which is apparent in the histograms included previously.
+
+## Proposed Model
+
+The first model we propose is a linear regression on the literacy rate of the county with the predictors: proportion of the population over age 25 who have less than a high school education, the proportion of the population who is foreign born, the poverty rate, the unemployment rate, and the US state that the county is located in. The abbreviated summary table with overall characteristics of the model is displayed below.  
+
+```{r propose model}
+county.lm1 <- lm(Literate ~ Less_HS + FB + Poverty_100 + Unemployed + State, data = train.data)
+
+lm1.df <- data.frame("Rsq" = 0.9494, 
+                     "Rsq_adj" = 0.9483,
+                     "s" = 0.01893, 
+                     "F-statistic" = 871.2, 
+                     "p-value" = "<0.001"
+                     )
+  
+kbl(as_tibble(lm1.df), booktabs = T, caption = "Overall Model Characteristics") %>%
+  kable_styling(latex_options = c("hold_position"))
+```
+
+\pagebreak
+
+# Residual Analysis
+
+## Model Conditions 
+
+```{r lin/eq var}
+lm1.res <- resid(county.lm1)
+lm1.fit <- fitted(county.lm1)
+
+plot(lm1.res ~ lm1.fit, 
+     main = "Residuals vs. Fitted", 
+     ylab = "Residuals", xlab = "Fitted")
+abline(0,0, col = "blue")
+```
+
+The Residuals vs. Fitted plot for this model displays very clear violations of equal variance due to the pronounced fanning of the residuals. The linearity condition is fine because while there is fanning, there isn't obvious curvature or other patterns in the Residuals vs. Fitted plot. 
+
+```{r normality hist}
+hist(lm1.res, main = "Histogram of Residuals", xlab="Residuals", breaks = 20) #hist of resids
+```
+
+The histogram of residuals looks very normal and bell-shaped, which makes sense given the Central Limit Theorem and the large size of our data set. 
+
+```{r qqnorm}
+qqnorm(lm1.res, main = "Normal Probability Plot of Residuals"); qqline(lm1.res) #qqplot  
+```
+
+The normal probability plot of residuals definitely shows some issues with normality, but overall this condition is satisfied because of how good the histogram of residuals looks. 
+
+The independence condition cannot be checked with residual plots, but we assume that it is satisfied because each observation is an individual US county, and data provided by the National Center for Education Statistics (NCES) are usually reliable. 
+
+Just like in the Residuals vs. Predictor plots that were displayed earlier in this report, the residual analysis revealed that the main model condition that is not satisfied is equal variance. Usually when there are issues with equal variance, a transformation of the response variable is the most appropriate, so that is what we tried. 
+
+Below are four Residual vs. Fitted plots for this model that we tried, where the response variable literacy rate is transformed.
+
+```{r transform Literate}
+#fit models
+lm.log <- lm(log(Literate) ~ Less_HS + FB + Poverty_100 + Unemployed + State)
+lm.sq <- lm(I(Literate^2) ~ Less_HS + FB + Poverty_100 + Unemployed + State)
+lm.cube <- lm(I(Literate^3) ~ Less_HS + FB + Poverty_100 + Unemployed + State)
+lm.sqrt <- lm(sqrt(Literate) ~ Less_HS + FB + Poverty_100 + Unemployed + State)
+
+par(mfrow = c(2,2))
+plot(resid(lm.log) ~ fitted(lm.log), main = "Residual Plot for ln(y)", ylab = "Residuals", xlab = "Fitted"); abline(0,0, col = "blue")
+plot(resid(lm.sq) ~ fitted(lm.sq), main = "Residual Plot for y^2", ylab = "Residuals", xlab = "Fitted"); abline(0,0, col = "blue")
+plot(resid(lm.cube) ~ fitted(lm.cube), main = "Residual Plot for y^3", ylab = "Residuals", xlab = "Fitted"); abline(0,0, col = "blue")
+plot(resid(lm.sqrt) ~ fitted(lm.sqrt), main = "Residual Plot for sqrt(y)", ylab = "Residuals", xlab = "Fitted"); abline(0,0, col = "blue")
+```
+
+None of the transformations of literacy rate that we attempted (including the four pictures and a few others) appeared to help the equal variance condition without messing up linearity. The Residual vs. Fitted plot that looks the best was for the model with the literacy rate squared, in which the equal variance condition seems to be somewhat better. We ran the Box Cox procedure, and $\lambda = 2$ was right in the middle of the confidence interval, so it confirmed what we found in the residual plot. However, the linearity condition is worse for this relationship, and a couple of outliers that didn't previously exist were created in the process. 
+
+Bearing in mind our cycles of residual analysis and re-fitting, we decide to keep the original model and move forward with it for the rest of our analysis. Since the model with literacy rate squared is not too much worse than our first model, we will compare these two models again during the model validation. 
+
+## Case Influence Diagnostics 
+
+After confirming our choice of model, we found the main case influence statistics and plotted them below. 
+
+```{r case influence diagnostics}
+#find the stats 
+delres <- rstudent(county.lm1) #studentized deleted residuals 
+lev <- hatvalues(county.lm1) #leverages 
+cooks <- cooks.distance(county.lm1) #cook's distance
+dffits <- dffits(county.lm1) #DFFITS
+n <- nrow(train.data)
+
+#plot 
+par(mfrow = c(2,2))
+#studentized deleted residuals 
+plot(abs(delres), ylab = "Studentized Deleted Residuals", main = "Studentized Deleted Residuals") 
+abline(h = 3, lty = 2, col = "red")
+
+#Leverages 
+plot(lev, ylab = "Leverages", main = "Leverages") 
+abline(h = 0.2, lty = 2, col = "red")
+
+#Cook's Distance
+plot(cooks, ylab = "Cook's Distance", main = "Cook's Distance")
+abline(h = 0.5, lty = 2, col = "red")
+
+#DFFITS
+plot(abs(dffits), ylab = "DFFITS", main = "DFFITS")
+abline(h = 1, lty = 2 ,col = "red")
+```
+
+The case influence diagnostic plots show that there are a moderate amount of observations with a studentized deleted residual that have an absolute value greater than 3 (meaning they are in the tail of the t-distribution); 10 observations with high leverage; and a handful with a large influence on the predicted values from the DFFITS plot. 
+
+We found that there are four counties above the cutoff points (plotted as the red dashed lines) that have both a large studentized deleted residual and a large DFFITS score. Three of those counties--Mora County, Mckinley County, and Guadalupe County--are located in New Mexico, while the remaining county--Greenlee County--is located in Arizona. It is likely significant that three of the four counties that our analysis flagged as potential influential points are in the same state, although further study would be required to figure out what is going on there. 
+
+# Fit a Linear Model
+
+## Linear Model Equation
+
+The equation for our proposed model is included below. (Note: states are abbreviated to their two digit postal code). 
+
+$$\hat{Literate} = 0.959 -.95LessHS - 0.13FB-0.27Poverty100-0.13Unemployed+0.04AK+0.04AZ+0.008AR$$
+$$+0.008CA+0.004CO+0.02CT-0.008DE-0.02DC+0.006FL+0.006GA+0.01HI+0.02ID+0.02IL+0.02IN$$
+$$+0.01IA+0.01KA+0.03KY-0.01LA+0.03ME-0.004MD+0.02MA+0.02MI+0.02MN-0.01MS$$
+$$+0.01MO+0.02MT+0.008NE+0.008NV+0.03NH+0.001NW-0.04NM+0.01NY+0.01NC+0.02ND$$
+$$+0.02OH+0.02OK+0.02OR+0.009PA+0.03RI-0.007SC+0.02SD+0.02TN-0.003TX+0.02UT+0.02VT$$
+$$+0.005VA+0.02WA+0.02WV+0.02WI+0.02WY$$
+
+## Contextualized Model
+
+Based on logic alone, there is an apparent relationship between level of education and literacy rates, which our model supports. Our model implies  that the more people who graduate high school, the higher literacy rates will be. Although we cannot make any definite statements about causality, it makes sense that more education will lead to improved literacy rates because one must be able to have a proficient level of reading and writing skills to earn a  diploma. Furthermore, it is fair to assume that counties that have large populations of foreign born residents would have lower English literacy rates because English might not have been their first language, so the negative regression coefficient for the Foreign Born variable makes sense as well. However, it is unclear which way causality flows between literacy rates, poverty and unemployment, so it would not be appropriate to contextualize the negative relationships that appear in our model. Nevertheless, it is logical that counties with high rates of poverty will have lower rates of not only literacy but also completion of secondary education.
+
+## Model Behavior 
+
+The variables in our model fit the data pretty well, based on R^2^, adjusted R^2^, and s. R^2^ is 0.9494, so 94.94% of the variation in literacy rates in US counties can be explained by the regression model with the predictors proportion of population with less than a high school education, proportion of population who is foreign born, poverty rate, unemployment rate, and US state. The adjusted R^2^ is 0.9483, which is a good sign that there are not unnecessary predictors since it is so close to the R^2^. 
+
+The root mean square error (s) is 0.0189, which means the average prediction error is 1.89 percentage points of literacy rate. This is a pretty small s value in context, so we believe that the fit of the model is applicable to our study on literacy rates in US counties.
+
+## Regression Coefficient Interpretation
+
+The intercept of our model is 0.9594, so if 0% of the population of a county failed to graduate high school, 0% are foreign born, the poverty rate is 0%, the unemployment rate is 0%, and the state is Alabama (the reference group), the predicted mean literacy rate is 95.94%. It doesn't make very much sense to interpret the intercept since it is virtually impossible for a county to have these characteristics. 
+
+The regression coefficient for `Less_HS` is -0.9493, so holding the proportion of foreign born residents in a county, the poverty rate, the unemployment rate, and the state constant, for every one percentage point increase in proportion of population who have less than a high school education, it is predicted that the literacy rate of a county will decrease by 0.9493 percentage points. 
+
+The regression coefficient for `FB` is -0.1305, so holding all other predictors constant, for every one percentage point increase in the proportion of county residents who were born outside of the US, we predict literacy rates to decrease by 0.1305 percentage points. 
+
+The coefficient for `Poverty` is -0.2745, so holding all other predictors constant, for every one percentage point increase in the poverty rate of a county, we expect literacy rate to decrease by 0.2745 percentage points. 
+
+And finally, the coefficient fr `Unemployed` is -0.0939, so holding all other predictors constanr, for every one percentage point increase in the unemployment rate in a county, we predict that the literacy rate will decrease by .0939 percentage points.
+
+For the categorical variable `State`, the reference group is Alabama and the regression coefficient for Alaska is 0.0363. So we predict that holding all four quantitative predictors constant, counties in Alaska will on average have a literacy rate that is 0.0363 percentage points higher than counties in Alabama. 
+
+## Multicollinearity 
+
+In order to examine possible multicollinearity in our data, a table with the variance influence factors (VIFs) for the predictors is included below.
+
+```{r VIFs}
+kbl(vif(county.lm1), booktabs = T) %>%
+  kable_styling(latex_options = c("hold_position"))
+```
+
+Since the VIFs for all the explanatory variables are between 1 and 5, we can conclude that none of the predictors are highly correlated. Therefore, while there is some moderate multicollinearity in our data, it is not severe enough to warrant further corrective measures.
+
+# Statistical Inference 
+
+## Overall Model Utility Test 
+
+For this overall model utility test, the hypotheses are: 
+
+$H_0$: $\beta_{LessHS} = \beta_{FB} = \beta_{Poverty} = \beta_{Unemployed} = \beta_{State} = 0$
+$H_A$: at least one of these $\beta_i's \neq 0$
+
+With a large F-statistic of 871.2 and small p-value < 0.001 from the distribution F(53,2459), we reject the null hypothesis and conclude that the overall model is statistically significant, meaning there is a statistically significant relationship between proportion of population with education less than high school, proportion of population foreign born, poverty rate, and unemployment rate for the model on literacy rates.
+
+## Partial F-Test
+
+For this partial F-test, we are testing whether our full model is significantly better than a model that predicts literacy rates from poverty rate alone. The hypotheses for this test are: 
+
+$H_0$: $\beta_{LessHS} = \beta_{FB} = \beta_{Unemployment} = \beta_{State} = 0$
+$H_A$: at least one of these $\beta_i's \neq 0$ 
+
+The table below displays the output from the ANOVA table for the partial F-test.
+
+```{r partial f-test}
+reduced.lm <- lm(Literate ~ Poverty_100 , data = train.data) #fit reduced model
+kbl(anova(reduced.lm, county.lm1), booktabs = T) %>%
+  kable_styling(latex_options = c("hold_position")) #partial f-test
+```
+
+With a large F-statistic of 403.50 and a small p-value < 0.001 from the distribution F(52,2459), we reject the null hypothesis and conclude that adding the predictors proportion with less than a high school education, proportion foreign born, unemployment rate, and state to the model that only includes poverty rate significantly improved the prediction for literacy rate. 
+
+## Interaction Model 
+
+Next, we will test the significance of the interaction term between region of the United States and poverty rate, which is the relationship depicted in the previous interaction plot. For this test, the hypotheses are: 
+
+$H_O$:$\beta_{region:Poverty} = 0$
+$H_A$:$\beta_{region:Poverty} \neq 0$
+
+The table below displays the output from the ANOVA table for this F-test of the interaction term. 
+
+```{r interaction model test}
+add.lm <- lm(Literate ~ region + Poverty_100, data=train.data)
+interaction.lm <- lm(Literate ~ region + Poverty_100 + region:Poverty_100, data = train.data)
+
+kbl(anova(add.lm, interaction.lm), booktabs = T) %>%
+  kable_styling(latex_options = c("hold_position"))
+```
+
+With a moderately large F stat of 32.211 and small p-value < 0.001, from the distribution F(3,2505), we reject the null hypothesis to conclude that the difference in slopes between the four US regions south, west, midwest, and northeast is statistically significant. Therefore, the impact of poverty on literacy rates is significantly different between regions in the US.
+
+## Confidence Intervals 
+
+We chose to make a hypothetical county that has the mean values (from the training data) for proportion of population who failed to graduate high school, proportion of population foreign born, poverty rate, and unemployment rate in order to investigate an "average" US county. We placed this county in California because that is where we live. 
+
+The table below displays the confidence interval for the mean literacy rate of these "average" counties and the prediction interval for the literacy rate of a future hypothetical "average" county. 
+
+```{r CI and PI, include=FALSE}
+#find the mean county 
+Less_HS.mean <- mean(Less_HS)
+FB.mean <- mean(FB)
+Poverty_100.mean <- mean(Poverty_100) 
+Unemployed.mean <- mean(Unemployed)
+
+#fit new county 
+newcounty <- data.frame(Less_HS = Less_HS.mean, 
+                        FB = FB.mean,
+                        Poverty_100 = Poverty_100.mean, 
+                        Unemployed = Unemployed.mean, 
+                        State = "California")
+
+#calculate intervals 
+predict(county.lm1, newdata = newcounty, interval = "confidence") #CI
+predict(county.lm1, newdata = newcounty, interval = "prediction") #PI
+```
+
+```{r print table}
+#create df
+CIPI.df <- data.frame("Interval Type" = c("Confidence", "Prediction"), 
+                      "Lower Bound" = c(0.77621, 0.74440), 
+                      "Upper Bound" = c(0.78771, 0.81952))
+
+#print table
+kbl(as_tibble(CIPI.df), booktabs = T) %>%
+  kable_styling(latex_options = c("hold_position"))
+```
+
+For these "average" counties, we are 95% confident that the mean literacy rate will be between 77.62% and 78.77%. For a hypothetical "average" county with the same characteristics, we are 95% confident in our prediction that the literacy rate will be between 74.44% and 81.95%. 
+
+# Model Validation 
+
+## Model Validation Statistics 
+
+In order to validate our model, we will compare some model validations statistics from the model we ultimately chose with our second choice of a model, which was the model with the same predictors, except that the response (literacy rate) is squared. Below is a table that summarizes these statistics between the two models. 
+
+```{r model validation, include=FALSE}
+#store predictions (y-hats) using the model county.lm1 for the values in test data
+predicted.lm1 <- predict(county.lm1, data = test.data)
+#store predictions (y-hats) using the model lm.sq for the values in test data
+predicted.sq <- predict(lm.sq, data = test.data)
+
+#store actual y-is (response values) from the test.data
+actual <- test.data$Literate
+
+#compute mspr and mse for county.lm1 
+print("mspr.lm1"); (mspr.lm1 <- mean((predicted.lm1 - actual)^2))
+print("mse.lm1"); (mse.lm1 <- mean(county.lm1$residuals^2))
+print("dif.lm1"); (dif.lm1 <- mspr.lm1 - mse.lm1)
+
+#compute mspr and mse for lm.sq 
+print("mspr.sq"); (mspr.sq <- mean((predicted.sq - actual)^2))
+print("mse.sq"); (mse.sq <- mean(lm.sq$residuals^2))
+print("dif.sq"); (dif.sq <- mspr.sq - mse.sq)
+
+#county.lm1 other stats
+#r2=0.9494 #r2adj=0.9483 
+#glance(county.lm1) #AIC=-12751.83 #BIC=12431.22
+
+print("SSE.lm1")
+SSE.lm1 <- anova(county.lm1)$'Sum Sq'[length(anova(county.lm1)$'Sum Sq')]; SSE.lm1
+
+print("PRESS.lm1") 
+PRESS.lm1 <- sum((resid(county.lm1)/(1-hatvalues(county.lm1)))^2); PRESS.lm1 #PRESS
+
+SST.lm1 <- sum((anova(county.lm1))$'Sum Sq') #SST for R2pred
+print("R2pred.lm1"); (1 - PRESS.lm1/SST.lm1) #R2pred
+
+#lm.sq
+#r2 =0.9496 #r2adj=0.9486 
+#glance(lm.sq) #AIC=-10802.69 #BIC=-10482.08
+
+print("SSE.sq")
+SSE.sq <- anova(lm.sq)$'Sum Sq'[length(anova(lm.sq)$'Sum Sq')]; SSE.sq
+  
+print("PRESS.sq") 
+PRESS.sq <- sum((resid(lm.sq)/(1-hatvalues(lm.sq)))^2); PRESS.sq #PRESS
+
+SST.sq <- sum((anova(lm.sq))$'Sum Sq') #SST for R2pred
+print("R2pred.sq"); (1 - PRESS.sq/SST.sq) #R2pred
+```
+
+```{r create table}
+#create df to compare models 
+modValid.df <- data.frame("Model" = c("Literacy Rate", "Literacy Rate^2"),
+                          "MSPR" = c(0.01334, 0.04608), 
+                          "MSE" = c(0.00035, 0.00076), 
+                          "Difference" = c(0.01299, 0.04532), 
+                          "Rsq" = c(0.9494, 0.9496), 
+                          "Rsq_adj" = c(0.9483, 0.9486),
+                          "Rsq_pred" = c(0.94727, 0.94734),
+                          "SSE" = c(0.8809, 1.9134), 
+                          "PRESS" = c(0.9187, 2.0008),
+                          "BIC" = c(-12431, -10482))
+
+#create table
+kbl(as_tibble(modValid.df), booktabs = T) %>%
+  kable_styling(latex_options = c("hold_position"))
+```
+
+We believe that the model validation statistics provides relatively good evidence that our final model has good predictive ability. The MSPR for our model is pretty small at 0.01334 and the MSE is very small at 0.00035. So while our model appears to have overfit the training data slightly in comparison to the predictions for the testing data, it still did a pretty good job, with a difference of only 0.01299. The model with Literacy^2^ performed worse for both MSPR, MSE, and the difference between them, so this model definitely overfit the training data. 
+
+It is appropriate to compare the R^2^ and R^2^ adjusted because both models have the same number of predictors, and they are very high for both models. Even though both R^2^ and R^2^ adjusted are each a tiny bit higher for the Literacy^2^ model, it is not a big enough difference to be important. The R^2^ prediction is almost also high at 0.9473 both both models. This means that 94.73% of the variability in predicting new observations is explained by both our full model and the model with Literacy^2^. 
+
+While both models produced PRESS values that are close to their SSE values, our final model has both a smaller difference between SSE and PRESS and smaller values of SSE and PRESS in absolute terms (in comparison to the model with Literacy^2^). Our final model also minimized BIC in comparison to the other model. 
+
+After computing and comparing these model validation statistics, we are satisfied that we chose the best model we could find, and that this model does a good job both explaining the variability in the data and predicting on new observations. 
+
+## Fit Model on Full Data
+
+As a final step, we fit our model on our full dataset that includes all 3,142 US counties. Some select summary statistics are displayed in the table below in order to compare the model fit with the training data, the test data, and the full data. 
+
+```{r model on full data}
+#fit lm on full data
+lm.fulldata <- lm(Literate ~ Less_HS + FB + Poverty_100 + Unemployed + State, 
+                  data = county.data)
+#fit lm on test data 
+lm.test <- lm(Literate ~ Less_HS + FB + Poverty_100 + Unemployed + State, 
+                  data = test.data)
+
+#creat df with all summary stats
+lm1full.df <- data.frame("Data" = c("Training Data", "Testing Data", "Full Data"),
+                         "Rsq" = c(0.9494, 0.9582, 0.9501), 
+                         "Rsq_adj" = c(0.9483, 0.9543, 0.9492),
+                         "s" = c(0.0189, 0.0174, 0.01868), 
+                         "F-statistic" = c(871.24, 248.71, 1088.43), 
+                         "p-value" = c("<0.001", "<0.001", "<0.001"))
+
+#print table  
+kbl(as_tibble(lm1full.df), booktabs = T, caption = "Overall Model Characteristics") %>%
+  kable_styling(latex_options = c("hold_position"))
+```
+
+The summary statistics reveal that our model actually performs better on both the testing data and the full data than it does on the training data. However, the differences are not that large between the model fit on all three data sets, and all three perform well in predicting the literacy rate of a US county from the proportion of residents who did not graduate high school, the proportion of residents born outside the US, the poverty rate, the unemployment rate, and the state. 
+
+# Conclusion 
+
+Our linear regression model proved to be effective in predicting literacy rates of US counties. With a large F-statistic and small p value, an overall F-test determined that the model is significant, meaning there is a statistically significant relationship between education less than high school, foreign birth, poverty, unemployment, states and literacy rates. Furthermore, only twelve out of fifty states did not have slope coefficients that were statistically significant at the 5% level, indicating that state is a useful categorical predictor. Based on the R^2^ value, only about 5% of the variation in literacy rates is not explained by our model. We believe that if we were to continue investigating literacy rates, adding race and gender to our model could explain more of the unexplained variation.
+
+As we discussed in the model validation section, when testing our model with the training data, the mean of the squared prediction errors was very small and was relatively similar to the mean squared error. This indicates that the predictive ability of the model is relatively strong. We found that while squaring the Literacy Rate seemed to help equal variance somewhat, in the end it was not a worthwhile transformation because it made the model fit the training data too closely and messed with linearity. In addition, when we transformed literacy, it made interpreting the coefficients much more difficult, so it made sense to keep the simpler model. Critiques of our model include the fact that the MSPE and MSE aren’t extremely close and the equal variance conditions did not greatly improve with transformations. It is possible that more complex statistical techniques would have enabled us to find an appropriate transformation to help with equal variance.
+
+Looking into the future and beyond the United States, further statistical analyses could also focus on adding a cross-cultural literacy comparison by exploring literacy rates around the world with adjusted variables. One study noted that a single statistic about literacy rates cannot tell the whole picture as well. For example, “although Haiti has a higher overall basic literacy rate than Afghanistan (45 vs. 32 percent), in fact, the two countries are almost equivalent in male literacy, but sharply different in female basic literacy rates” (Wallendorf). This journal also noted that literacy can directly influence statistics, as data collection methods like informed consent forms, questionnaires and surveys “may exceed the reading motivation of illiterates, further homogenizing the sample... these implicit exclusions mask a systematic bias” (Wallendorf). Thus, literacy is an important topic to research for not only social science majors, but for others as well, and there are many areas which warrant further investigation. 
+
+# Appendix 
+
+## References 
+
+Mehmood, Bilal and Syed Hassan Raza, Shabana Mureed. (2014). Health Expenditure, Literacy and Economic Growth: PMG Evidence from Asian Countries. Euro-Asian Journal of Economics and Finance, 2(4):408-417.
+
+Wallendorf, Melanie. “Literally Literacy.” Journal of Consumer Research, vol. 27, no. 4, 2001, pp. 505–511. JSTOR, www.jstor.org/stable/10.1086/319625. Accessed 10 Mar. 2021.
+
+Weiss, Barry and Gregory Hart, Ronald E. Pust. (1991). The Relationship Between Literacy and Health. Journal of Health Care for the Poor and Underserved, 1(4): 351-363.
+
+## Codebook 
+
+An Excel spreadsheet with our codebook will be submitted with this report. 
