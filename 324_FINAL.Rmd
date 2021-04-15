@@ -534,7 +534,3 @@ Mehmood, Bilal and Syed Hassan Raza, Shabana Mureed. (2014). Health Expenditure,
 Wallendorf, Melanie. “Literally Literacy.” Journal of Consumer Research, vol. 27, no. 4, 2001, pp. 505–511. JSTOR, www.jstor.org/stable/10.1086/319625. Accessed 10 Mar. 2021.
 
 Weiss, Barry and Gregory Hart, Ronald E. Pust. (1991). The Relationship Between Literacy and Health. Journal of Health Care for the Poor and Underserved, 1(4): 351-363.
-
-## Codebook 
-
-An Excel spreadsheet with our codebook will be submitted with this report. 
